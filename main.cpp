@@ -47,16 +47,16 @@ private:
     static size_t GetPriority(ExpressionType operation);
     void GetRidOfSpaces();
 
-    [[nodiscard]] static auto FindArithmeticOperation(str_iter left, str_iter right)
+    static auto FindArithmeticOperation(str_iter left, str_iter right)
         -> std::pair<std::optional<ExpressionType>, str_iter>;
 
     void ParseExpression(Node* current_node, str_iter left, str_iter right);
     bool IsParBalance(str_iter left, str_iter right);
 
-    [[nodiscard]] inline bool IsConstant(str_iter left) const;
-    [[nodiscard]] inline bool IsFunction(str_iter left, str_iter right) const;
-    [[nodiscard]] std::string GetFunctionName(str_iter_const left, str_iter_const right) const;
-    [[nodiscard]] std::vector<std::pair<str_iter, str_iter>> GetFunctionParameters(str_iter left, str_iter right) const;
+    inline bool IsConstant(str_iter left) const;
+    inline bool IsFunction(str_iter left, str_iter right) const;
+    std::string GetFunctionName(str_iter_const left, str_iter_const right) const;
+    std::vector<std::pair<str_iter, str_iter>> GetFunctionParameters(str_iter left, str_iter right) const;
 };
 
 /* Class constructor */
@@ -69,11 +69,9 @@ ExpressionParser::ExpressionParser(std::string expression) : expression_(std::mo
 /* This function helps to get rid of unnecessary spaces in the expression */
 void ExpressionParser::GetRidOfSpaces() {
     std::string expression_without_spaces;
-    for(auto c : expression_) {
-        if(c != ' ') {
-            expression_without_spaces.push_back(c);
-        }
-    }
+    std::for_each(expression_.begin(), expression_.end(), [&expression_without_spaces](char current){
+        if(current != ' ') expression_without_spaces.push_back(current);
+    });
     expression_ = expression_without_spaces;
 }
 
@@ -124,9 +122,11 @@ auto ExpressionParser::FindArithmeticOperation(str_iter left, str_iter right)
         } else if (current_char == ')') {
             --par_balance;
         }
+
         if(par_balance != 0) {
             continue;
         }
+
         ExpressionType current_type;
         switch (current_char) {
             case '+':
@@ -142,7 +142,11 @@ auto ExpressionParser::FindArithmeticOperation(str_iter left, str_iter right)
                 current_type = ExpressionType::Default;
                 break;
         }
-        if(current_type == ExpressionType::Default) continue;
+
+        if(current_type == ExpressionType::Default) {
+            continue;
+        }
+
         if(!type) {
             type = current_type;
             pos = current_iter;
@@ -154,6 +158,7 @@ auto ExpressionParser::FindArithmeticOperation(str_iter left, str_iter right)
                 pos = current_iter;
             }
             ++current_iter;
+
             //TODO: how to deal with 5*-+-+-+5?
             while(*current_iter == '*' || *current_iter == '-' || *current_iter == '+') ++current_iter;
         }
@@ -173,7 +178,6 @@ void ExpressionParser::ParseExpression(Node* current_node, str_iter left, str_it
     {
         ++surplus_pars;
     }
-
 
     std::advance(left, surplus_pars);
     std::advance(right, -surplus_pars);
@@ -207,7 +211,7 @@ void ExpressionParser::ParseExpression(Node* current_node, str_iter left, str_it
                 ++counter;
             }
         } else {
-            if(right - left < 1) {
+            if(std::distance(left, right) < 1) {
                 current_node->type = ExpressionType::Constant;
                 current_node->content = "0"; //In case we get -10, left constant will be void, so we make it 0-10
             } else {
@@ -236,13 +240,12 @@ bool ExpressionParser::IsFunction(str_iter left, str_iter right) const {
 
 /* This functions can be called only if expression[left:right] is actually a function*/
 std::string ExpressionParser::GetFunctionName(str_iter_const left, str_iter_const right) const {
-    for(auto current_iter = left; current_iter != right; ++current_iter) {
-        if(*current_iter == '(') {
-            size_t pos = std::distance(expression_.begin(), left);
-            return expression_.substr(pos, std::distance(left, current_iter));
-        }
-    }
-    assert(false);
+    auto current_iter = std::find(left, right, '(');
+
+    size_t pos = std::distance(expression_.begin(), left);
+    size_t length = std::distance(left, current_iter);
+
+    return expression_.substr(pos, length);
 }
 
 /* This functions can be called only if expression[left:right] is actually a function*/
