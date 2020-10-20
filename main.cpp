@@ -12,6 +12,9 @@
 #include <vector>
 #include <utility>
 
+using str_iter = std::string::iterator;
+using str_iter_const = std::string::const_iterator;
+
 /* ExpressionParser class
  * This class converts the given expression into tree
  * which can be used for ARM code generation
@@ -44,23 +47,23 @@ private:
     static size_t GetPriority(ExpressionType operation);
     void GetRidOfSpaces();
 
-    [[nodiscard]] auto FindArithmeticOperation(size_t left, size_t right) const
-        -> std::pair<std::optional<ExpressionType>, size_t>;
+    [[nodiscard]] static auto FindArithmeticOperation(str_iter left, str_iter right)
+        -> std::pair<std::optional<ExpressionType>, str_iter>;
 
-    void ParseExpression(Node* current_node, size_t left, size_t right);
-    bool IsParBalance(size_t left, size_t right);
+    void ParseExpression(Node* current_node, str_iter left, str_iter right);
+    bool IsParBalance(str_iter left, str_iter right);
 
-    [[nodiscard]] inline bool IsConstant(size_t left) const;
-    [[nodiscard]] inline bool IsFunction(size_t left, size_t right) const;
-    [[nodiscard]] std::string GetFunctionName(size_t left, size_t right) const;
-    [[nodiscard]] std::vector<std::pair<size_t, size_t>> GetFunctionParameters(size_t left, size_t right) const;
+    [[nodiscard]] inline bool IsConstant(str_iter left) const;
+    [[nodiscard]] inline bool IsFunction(str_iter left, str_iter right) const;
+    [[nodiscard]] std::string GetFunctionName(str_iter_const left, str_iter_const right) const;
+    [[nodiscard]] std::vector<std::pair<str_iter, str_iter>> GetFunctionParameters(str_iter left, str_iter right) const;
 };
 
 /* Class constructor */
 ExpressionParser::ExpressionParser(std::string expression) : expression_(std::move(expression)) {
     GetRidOfSpaces();
     root_ = std::make_unique<Node>();
-    this->ParseExpression(root_.get(), 0, expression_.size());
+    this->ParseExpression(root_.get(), expression_.begin(), expression_.end());
 }
 
 /* This function helps to get rid of unnecessary spaces in the expression */
@@ -75,17 +78,19 @@ void ExpressionParser::GetRidOfSpaces() {
 }
 
 /* Finds out if Parenthesis balance is correct for give subexpression */
-bool ExpressionParser::IsParBalance(size_t left, size_t right) {
+bool ExpressionParser::IsParBalance(str_iter left, str_iter right) {
     int64_t balance = 0;
-    for(size_t i = left; i < right; ++i) {
-        if(balance < 0) return false;
-        if(expression_[i] == '(') {
+    bool correct = true;
+
+    std::for_each(left, right, [&balance, &correct](char current_char) {
+        if(balance < 0) correct = false;
+        if(current_char == '(') {
             ++balance;
-        } else if(expression_[i] == ')') {
+        } else if(current_char == ')') {
             --balance;
         }
-    }
-    return true;
+    });
+    return correct;
 }
 
 /* Gives priority of specific operation */
@@ -104,15 +109,16 @@ size_t ExpressionParser::GetPriority(ExpressionParser::ExpressionType operation)
 /* Finds arithmetic operation in the given subexpression.
  * If there is no any, returns {std::nullopt, 0}
  */
-auto ExpressionParser::FindArithmeticOperation(size_t left, size_t right) const
--> std::pair<std::optional<ExpressionType>, size_t> {
+auto ExpressionParser::FindArithmeticOperation(str_iter left, str_iter right)
+-> std::pair<std::optional<ExpressionType>, str_iter> {
 
     std::optional<ExpressionType> type = std::nullopt;
-    size_t pos = 0;
+    auto pos = left;
     int64_t par_balance = 0;
 
-    for(size_t i = left; i < right; ++i) {
-        char current_char = expression_[i];
+    for(auto current_iter = left; current_iter != right; ++current_iter) {
+        char current_char = *current_iter;
+
         if(current_char == '(') {
             ++par_balance;
         } else if (current_char == ')') {
@@ -139,17 +145,17 @@ auto ExpressionParser::FindArithmeticOperation(size_t left, size_t right) const
         if(current_type == ExpressionType::Default) continue;
         if(!type) {
             type = current_type;
-            pos = i;
+            pos = current_iter;
         } else {
             size_t current_priority = GetPriority(current_type);
             size_t min_priority = GetPriority(*type);
             if(current_priority < min_priority) {
                 type = current_type;
-                pos = i;
+                pos = current_iter;
             }
-            ++i;
+            ++current_iter;
             //TODO: how to deal with 5*-+-+-+5?
-            while(expression_[i] == '*' || expression_[i] == '-' || expression_[i] == '+') ++i;
+            while(*current_iter == '*' || *current_iter == '-' || *current_iter == '+') ++current_iter;
         }
     }
     return std::make_pair(type, pos);
@@ -158,18 +164,19 @@ auto ExpressionParser::FindArithmeticOperation(size_t left, size_t right) const
 /* Main function for Expression parsing process
  * Recursively called. Builds the tree
  */
-void ExpressionParser::ParseExpression(Node* current_node, size_t left, size_t right) {
-    size_t surplus_pars = 0;
+void ExpressionParser::ParseExpression(Node* current_node, str_iter left, str_iter right) {
+    int64_t surplus_pars = 0;
 
-    while(expression_[left + surplus_pars] == '(' &&
-        expression_[right - 1 - surplus_pars] == ')' &&
+    while(*(left + surplus_pars) == '(' &&
+        *(right - 1 - surplus_pars) == ')' &&
         IsParBalance(left + surplus_pars + 1, right - surplus_pars - 1))
     {
         ++surplus_pars;
     }
 
-    left += surplus_pars;
-    right -= surplus_pars;
+
+    std::advance(left, surplus_pars);
+    std::advance(right, -surplus_pars);
 
     auto [type, pos] = FindArithmeticOperation(left, right);
     if(type) {
@@ -185,7 +192,8 @@ void ExpressionParser::ParseExpression(Node* current_node, size_t left, size_t r
     } else {
         if(IsConstant(left)) {
             current_node->type = ExpressionType::Constant;
-            current_node->content = expression_.substr(left, right - left);
+            current_node->content = expression_.substr(std::distance(expression_.begin(), left),
+                                                       std::distance(left, right));
         } else if(IsFunction(left, right)) {
             current_node->type = ExpressionType::Function;
             current_node->content = GetFunctionName(left, right);
@@ -204,21 +212,22 @@ void ExpressionParser::ParseExpression(Node* current_node, size_t left, size_t r
                 current_node->content = "0"; //In case we get -10, left constant will be void, so we make it 0-10
             } else {
                 current_node->type = ExpressionType::Variable;
-                current_node->content = expression_.substr(left, right - left);
+                current_node->content = expression_.substr(std::distance(expression_.begin(), left),
+                                                           std::distance(left, right));
             }
         }
     }
 }
 
 /* This functions can be called only if expression cannot be divided with arithmetic operation*/
-bool ExpressionParser::IsConstant(size_t left) const {
-    return ('0' <= expression_[left] && expression_[left] <= '9');
+bool ExpressionParser::IsConstant(str_iter left) const {
+    return ('0' <= *left && *left <= '9');
 }
 
 /* This functions can be called only if expression cannot be divided with arithmetic operation*/
-bool ExpressionParser::IsFunction(size_t left, size_t right) const {
-    for(size_t i = left; i < right; ++i) {
-        if(expression_[i] == '(') {
+bool ExpressionParser::IsFunction(str_iter left, str_iter right) const {
+    for(auto current_iter = left; current_iter != right; ++current_iter) {
+        if(*current_iter == '(') {
             return true;
         }
     }
@@ -226,31 +235,36 @@ bool ExpressionParser::IsFunction(size_t left, size_t right) const {
 }
 
 /* This functions can be called only if expression[left:right] is actually a function*/
-std::string ExpressionParser::GetFunctionName(size_t left, size_t right) const {
-    for(size_t i = left; i < right; ++i) {
-        if(expression_[i] == '(') {
-            return expression_.substr(left, i - left);
+std::string ExpressionParser::GetFunctionName(str_iter_const left, str_iter_const right) const {
+    for(auto current_iter = left; current_iter != right; ++current_iter) {
+        if(*current_iter == '(') {
+            size_t pos = std::distance(expression_.begin(), left);
+            return expression_.substr(pos, std::distance(left, current_iter));
         }
     }
     assert(false);
 }
 
 /* This functions can be called only if expression[left:right] is actually a function*/
-std::vector<std::pair<size_t, size_t>> ExpressionParser::GetFunctionParameters(size_t left, size_t right) const {
-    std::vector<std::pair<size_t, size_t>> answer = {};
-    size_t current_left = left;
-    for(; expression_[current_left] != '('; ++current_left);
-    ++current_left;
-    size_t current_right = current_left;
+auto ExpressionParser::GetFunctionParameters(str_iter left, str_iter right) const
+    -> std::vector<std::pair<str_iter, str_iter>>
+{
+    std::vector<std::pair<str_iter , str_iter>> answer = {};
+    auto current_left = left;
 
-    while(current_right < right) {
+    for(; *current_left != '('; ++current_left);
+    ++current_left;
+
+    auto current_right = current_left;
+
+    while(current_right != right) {
         int64_t pron_balance = 0;
 
-        for(; expression_[current_right] != ',' || pron_balance > 0; ++current_right) {
-            if(expression_[current_right] == '(') ++pron_balance;
-            if(expression_[current_right] == ')') --pron_balance;
+        for(; *current_right != ',' || pron_balance > 0; ++current_right) {
+            if(*current_right == '(') ++pron_balance;
+            if(*current_right == ')') --pron_balance;
 
-            if(pron_balance == -1 && expression_[current_right] == ')') {
+            if(pron_balance == -1 && *current_right == ')') {
                 answer.emplace_back(current_left, current_right);
                 return answer;
             }
@@ -264,6 +278,6 @@ std::vector<std::pair<size_t, size_t>> ExpressionParser::GetFunctionParameters(s
 }
 
 int main() {
-    ExpressionParser parser("-+-+-+5");
+    ExpressionParser parser("(1+a)*c + div(2+4,2)");
     return 0;
 }
