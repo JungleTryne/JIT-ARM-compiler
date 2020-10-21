@@ -3,7 +3,7 @@
  * ARM Just-In-Time Compiler
  */
 
-#include "JIT_compiler.h"
+#include "../include/JIT_compiler.h"
 
 /* Class constructor */
 ExpressionParser::ExpressionParser(std::string expression) : expression_(std::move(expression)) {
