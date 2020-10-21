@@ -3,4 +3,4 @@ project(jit_compiler)
 
 set(CMAKE_CXX_STANDARD 17)
 
-add_executable(jit_compiler main.cpp)
+add_executable(jit_compiler main.cpp JIT_compiler.cpp)
