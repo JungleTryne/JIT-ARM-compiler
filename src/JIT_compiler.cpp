@@ -3,7 +3,7 @@
  * ARM Just-In-Time Compiler
  */
 
-#include "../include/JIT_compiler.h"
+#include "../include/JIT_compiler.hpp"
 
 /* Class constructor */
 ExpressionParser::ExpressionParser(std::string expression) : expression_(std::move(expression)) {
@@ -105,7 +105,6 @@ auto ExpressionParser::FindArithmeticOperation(str_iter left, str_iter right)
             }
             ++current_iter;
 
-            //TODO: how to deal with 5*-+-+-+5?
             while(*current_iter == '*' || *current_iter == '-' || *current_iter == '+') ++current_iter;
         }
     }
@@ -269,14 +268,16 @@ void ARM_JIT_Compiler::handle_const(Node *current) {
     /* Handling Constant Type
      * ARM instructions for that:
      *
-     * ldr r0, [pc, #4]
+     * ldr r0, [pc]
+     * b skip
      * .word 0x05
+     * skip:
      * push {r0}
      *
      * P.S. 0x05 is given for example
      */
 
-    instructions_.emplace_back ( //ldr r0, [pc, #4]
+    instructions_.emplace_back ( //ldr r0, [pc]
             ARM_I::LDR_FROM_NEXT,
             ARM_R::R0,
             std::nullopt,
@@ -302,15 +303,17 @@ void ARM_JIT_Compiler::handle_variable(Node *current) {
     /* Handling Variable Type
      * ARM instructions for that:
      *
-     * ldr r0, [pc, #4]
+     * ldr r0, [pc]
+     * b skip
      * .word 0xfb1cfcd0
+     * skip:
      * ldr r0, [r0]
      * push {r0}
      *
      * P.S. 0xfb1cfcd0 is given for example
      */
 
-    instructions_.emplace_back ( //ldr r0, [pc, #4]
+    instructions_.emplace_back ( //ldr r0, [pc]
             ARM_I::LDR_FROM_NEXT,
             ARM_R::R0,
             std::nullopt,
@@ -456,8 +459,10 @@ void ARM_JIT_Compiler::handle_function(Node *current) {
      * ARM instructions for that:
      *
      * pop {r0-ri}
-     * ldr r4, [pc, #4]
+     * ldr r4, [pc]
+     * b skip
      * .word 0xfb1cfcd0
+     * skip:
      * blx r4
      * push {r0}
      */
@@ -472,6 +477,7 @@ void ARM_JIT_Compiler::handle_function(Node *current) {
     assert(arguments_number > 0);
 
 
+
 #ifndef DEBUG
     std::stringstream address;
     address << address_map_.at(*current->content);
@@ -484,7 +490,7 @@ void ARM_JIT_Compiler::handle_function(Node *current) {
             std::nullopt
     );
 
-    instructions_.emplace_back ( //ldr r0, [pc, #4]
+    instructions_.emplace_back ( //ldr r0, [pc]
             ARM_I::LDR_FROM_NEXT,
             ARM_R::R4,
             std::nullopt,
@@ -521,3 +527,78 @@ void ARM_JIT_Compiler::handle_function(Node *current) {
 }
 
 ARM_JIT_Compiler::ARM_JIT_Compiler(std::map<std::string, void*> address_map) : address_map_(std::move(address_map)) {}
+
+std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
+    std::vector<uint32_t> binary = {};
+    for(auto [type, reg1_o, reg2_o, str] : instructions_) {
+        uint32_t reg1 = reg1_o.has_value() ? static_cast<uint8_t>(*reg1_o) : 0;
+        uint32_t reg2 = reg2_o.has_value() ? static_cast<uint8_t>(*reg2_o) : 0;
+        uint32_t instruction = 0x0;
+
+        switch (type) {
+                case ARM_I::ADD:
+                    instruction |= reg1 << 12u; //first register
+                    instruction |= reg2 << 16u; //second register
+                    instruction |= 0u << 20u;   //S = 0
+                    instruction |= 0x4u << 21u; //prefix 0100
+                    instruction |= 0xeu << 28u; //condition 1110 -> always run
+                    binary.push_back(instruction);
+                    break;
+
+                case ARM_I::SUB:
+                    instruction |= reg1 << 12u; //first register
+                    instruction |= reg2 << 16u; //second register
+                    instruction |= 0u << 20u;   //S = 0
+                    instruction |= 0x2u << 21u; //prefix 0010
+                    instruction |= 0xeu << 28u; //condition 1110 -> always run
+                    binary.push_back(instruction);
+                    break;
+
+                case ARM_I::MUL:
+                    instruction |= reg2;        //Rm
+                    instruction |= 0x9u << 4u;  //1001 suffix
+                    instruction |= reg1 << 8u;  //Rs
+                    instruction |= reg1 << 16u; //Rd
+                    instruction |= 0xeu << 28u; //condition 1110 -> always run
+                    binary.push_back(instruction);
+                    break;
+
+                case ARM_I::BLX:
+                    //[cond] 00010010 [SBO] [SBO] [SBO] [0011] [RM]
+                    instruction |= reg1;        //RM
+                    instruction |= 0x3u << 4u;
+                    instruction |= 0xfu << 8u;
+                    instruction |= 0xfu << 12u;
+                    instruction |= 0xfu << 16u;
+                    instruction |= 0x2u << 20u;
+                    instruction |= 0x1u << 24u;
+                    instruction |= 0xeu << 28u; //condition 1110 -> always run
+                    binary.push_back(instruction);
+                    break;
+
+                case ARM_I::LDR_FROM_NEXT:
+                    break;
+
+                case ARM_I::LDR_REG:
+                    break;
+
+                case ARM_I::PUSH_REG:
+                    break;
+
+                case ARM_I::PUSH_MULT_REG:
+                    break;
+
+                case ARM_I::WORD_DECL:
+                    break;
+
+                case ARM_I::POP_MULT_REG:
+                    break;
+
+                default:
+                    assert(false);
+                    break;
+        }
+    }
+
+    return binary;
+}

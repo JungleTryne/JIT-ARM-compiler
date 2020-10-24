@@ -1,6 +1,6 @@
 #pragma once
 
-#define DEBUG
+//#define DEBUG
 
 #include <algorithm>
 #include <cassert>
@@ -73,6 +73,8 @@ public:
 
     template<typename OutputIterator>
     void print_assembly(OutputIterator& output);
+    std::vector<uint32_t> GetCompiledBinary();
+
 private:
 
     enum class ARM_INSTRUCTION {
@@ -80,9 +82,10 @@ private:
         SUB,            //r0 -= r1
         MUL,            //r0 *= r1
 
+        //SKIP,           //basically, b skip, but in memory just ea000000
         BLX,            //blx *function*
 
-        LDR_FROM_NEXT,  //ldr r_i [pc, #4]
+        LDR_FROM_NEXT,  //ldr r_i [pc, #-4]
         LDR_REG,        //reading from address in register (Example: ldr r_i, [r_j])
 
         PUSH_MULT_REG,  //pushing several registers
@@ -93,7 +96,6 @@ private:
 
         WORD_DECL,      //.word declaration
     };
-
     enum class ARM_REGISTER {
         R0 = 0,
         R1 = 1,
@@ -102,6 +104,7 @@ private:
         R4 = 4,
         LR, PC
     };
+
     using ARM_R = ARM_REGISTER;
 
     using ARM_I = ARM_INSTRUCTION;
@@ -110,11 +113,10 @@ private:
             std::optional<ARM_REGISTER>,
             std::optional<ARM_REGISTER>,
             std::optional<std::string>>;
-
     std::vector<instruction_t> instructions_;
     std::unique_ptr<Node> parse_tree_;
-    std::map<std::string, void*> address_map_;
 
+    std::map<std::string, void*> address_map_;
     void compile_(Node* current);
     void handle_const(Node* current);
     void handle_variable(Node* current);
@@ -127,53 +129,56 @@ private:
 
 template<typename OutputIterator>
 void ARM_JIT_Compiler::print_assembly(OutputIterator& output) {
+    bool skipped = false;
+    size_t counter = 0;
+
     std::for_each(instructions_.begin(),
                   instructions_.end(),
-                  [&output](const instruction_t& instruction)
+                  [&output, &skipped, &counter](const instruction_t& instruction)
                   {
-                      std::string param_1 = std::get<1>(instruction) ?
-                                            std::to_string(static_cast<int>(*std::get<1>(instruction))) : "";
+                    std::string param_1 = std::get<1>(instruction) ?
+                                        std::to_string(static_cast<int>(*std::get<1>(instruction))) : "";
 
-                      std::string param_2 = std::get<2>(instruction) ?
-                                            std::to_string(static_cast<int>(*std::get<2>(instruction))) : "";;
+                    std::string param_2 = std::get<2>(instruction) ?
+                                        std::to_string(static_cast<int>(*std::get<2>(instruction))) : "";;
 
 
                       switch (std::get<0>(instruction)) {
                           case ARM_I::ADD:
-                              *output = std::string("add\t\t") +
-                                        "r" + param_1 + ",\t" +
-                                        "r" + param_2 + ",\t" +
+                              *output = std::string("add\t") +
+                                        "r" + param_1 + ", " +
+                                        "r" + param_2 + ", " +
                                         "r" + param_1 + "\n";
                               break;
 
                           case ARM_I::SUB:
-                              *output = std::string("sub\t\t") +
-                                        "r" + param_1 + ",\t" +
-                                        "r" + param_2 + ",\t" +
+                              *output = std::string("sub\t") +
+                                        "r" + param_1 + ", " +
+                                        "r" + param_2 + ", " +
                                         "r" + param_1 + "\n";
                               break;
 
                           case ARM_I::MUL:
-                              *output = std::string("mul\t\t") +
-                                        "r" + param_1 + ",\t" +
-                                        "r" + param_2 + ",\t" +
+                              *output = std::string("mul\t") +
+                                        "r" + param_1 + ", " +
+                                        "r" + param_2 + ", " +
                                         "r" + param_1 + "\n";
                               break;
 
                           case ARM_I::BLX:
-                              *output = std::string("blx\t\t") +
+                              *output = std::string("blx\t") +
                                         "r" + param_1 + "\n";
                               break;
 
                           case ARM_I::LDR_FROM_NEXT:
-                              *output = std::string("ldr\t\t") +
-                                        "r" + param_1 + ",\t" +
-                                        "[pc, #4]" + "\n";
+                              *output = std::string("ldr\t") +
+                                        "r" + param_1 + ", " +
+                                        "[pc]" + "\n";
                               break;
 
                           case ARM_I::LDR_REG:
-                              *output = std::string("ldr\t\t") +
-                                        "r" + param_1 + ",\t" +
+                              *output = std::string("ldr\t") +
+                                        "r" + param_1 + ", " +
                                         "[" + "r" + param_2 + "]" + "\n";
                               break;
 
@@ -190,12 +195,16 @@ void ARM_JIT_Compiler::print_assembly(OutputIterator& output) {
                               break;
 
                           case ARM_I::WORD_DECL:
-                              *output = std::string(".word\t") +
-                                        std::string(*std::get<3>(instruction)) + "\n";
+
+                              *output = std::string("b\tskip") + std::to_string(counter) +
+                                        std::string("\n.word\t") +
+                                        std::string(*std::get<3>(instruction)) + "\n" +
+                                        std::string("skip") + std::to_string(counter) + std::string(":\n");
+                              ++counter;
                               break;
 
                           case ARM_I::POP_MULT_REG:
-                              *output = std::string("pop\t\t{r") +
+                              *output = std::string("pop\t{r") +
                                         param_1 + "-r" +
                                         param_2 +
                                         + "}\n";
@@ -205,6 +214,8 @@ void ARM_JIT_Compiler::print_assembly(OutputIterator& output) {
                               *output = std::string("UNKNOWN_INSTRUCTION\n");
                               break;
                       }
+
                       ++output;
+
                   });
 }
