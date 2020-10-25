@@ -143,7 +143,7 @@ void ExpressionParser::ParseExpression(Node* current_node, str_iter left, str_it
             std::string dec_view = expression_.substr(std::distance(expression_.begin(), left),
                                                       std::distance(left, right));
             std::stringstream hex_stream;
-            hex_stream << std::hex << dec_view;
+            hex_stream << std::hex << std::stoi(dec_view);
             std::string hex_view("0x" + hex_stream.str());
             current_node->content = hex_view;
 
@@ -281,7 +281,12 @@ void ARM_JIT_Compiler::handle_const(Node *current) {
             ARM_I::LDR_FROM_NEXT,
             ARM_R::R0,
             std::nullopt,
-            std::nullopt
+#ifndef DEBUG
+            current->content
+#endif
+#ifdef DEBUG
+            current->content
+#endif
     );
 
     instructions_.emplace_back ( //.word *constant*
@@ -312,18 +317,23 @@ void ARM_JIT_Compiler::handle_variable(Node *current) {
      *
      * P.S. 0xfb1cfcd0 is given for example
      */
+#ifndef DEBUG
+    std::stringstream address;
+    address << address_map_.at(*current->content);
+#endif
+    std::string address_str = address.str();
 
     instructions_.emplace_back ( //ldr r0, [pc]
             ARM_I::LDR_FROM_NEXT,
             ARM_R::R0,
             std::nullopt,
-            std::nullopt
-    );
-
 #ifndef DEBUG
-    std::stringstream address;
-    address << address_map_.at(*current->content);
+            address_str
 #endif
+#ifdef DEBUG
+            0x11111111
+#endif
+    );
 
     instructions_.emplace_back ( //.word *constant*
             ARM_I::WORD_DECL,
@@ -331,7 +341,7 @@ void ARM_JIT_Compiler::handle_variable(Node *current) {
             std::nullopt,
 
 #ifndef DEBUG
-            address.str()
+            address_str
 #endif
 #ifdef DEBUG
             current->content
@@ -483,18 +493,25 @@ void ARM_JIT_Compiler::handle_function(Node *current) {
     address << address_map_.at(*current->content);
 #endif
 
-    instructions_.emplace_back ( //pop {r0-ri}
-            ARM_I::POP_MULT_REG,
-            ARM_R::R0,
-            static_cast<ARM_R>(static_cast<size_t>(ARM_R::R0) + arguments_number - 1),
-            std::nullopt
-    );
+    for(int32_t i = arguments_number; i > 0; --i) {
+        instructions_.emplace_back ( //pop {r0-ri}
+                ARM_I::POP_REG,
+                static_cast<ARM_R>(static_cast<size_t>(ARM_R::R0) + i - 1),
+                std::nullopt,
+                std::nullopt
+        );
+    }
 
     instructions_.emplace_back ( //ldr r0, [pc]
             ARM_I::LDR_FROM_NEXT,
             ARM_R::R4,
             std::nullopt,
-            std::nullopt
+            #ifndef DEBUG
+                        address.str()
+            #endif
+            #ifdef DEBUG
+                        current->content
+            #endif
     );
 
     instructions_.emplace_back ( //.word *constant*
@@ -530,10 +547,15 @@ ARM_JIT_Compiler::ARM_JIT_Compiler(std::map<std::string, void*> address_map) : a
 
 std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
     std::vector<uint32_t> binary = {};
+    size_t counter = 0;
+
+    binary.push_back(0xe52d4004); //push {r4}
+
     for(auto [type, reg1_o, reg2_o, str] : instructions_) {
         uint32_t reg1 = reg1_o.has_value() ? static_cast<uint8_t>(*reg1_o) : 0;
         uint32_t reg2 = reg2_o.has_value() ? static_cast<uint8_t>(*reg2_o) : 0;
         uint32_t instruction = 0x0;
+        ++counter;
 
         switch (type) {
                 case ARM_I::ADD:
@@ -565,6 +587,11 @@ std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
 
                 case ARM_I::BLX:
                     //[cond] 00010010 [SBO] [SBO] [SBO] [0011] [RM]
+
+                    //TODO: SUPER-KOSTYL
+                    binary.push_back(0xe12fff14);
+
+                    /*
                     instruction |= reg1;        //RM
                     instruction |= 0x3u << 4u;
                     instruction |= 0xfu << 8u;
@@ -573,30 +600,126 @@ std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
                     instruction |= 0x2u << 20u;
                     instruction |= 0x1u << 24u;
                     instruction |= 0xeu << 28u; //condition 1110 -> always run
-                    binary.push_back(instruction);
+                    binary.push_back(instruction); */
                     break;
 
                 case ARM_I::LDR_FROM_NEXT:
+                    //this is multiple instructions case
+                    /*  ldr r0, [pc]    -> e59f0000
+                     *  .word 0x004932  -> [word]
+                     *  b 3c            -> ea000000
+                     */
+
+                    if(reg1 == 0) {
+                        binary.push_back(0xe59f0000);
+                    } else {
+                        binary.push_back(0xe59f4000);
+                    }
+
+                binary.push_back(0xea000000);
+
+#ifdef DEBUG:
+                binary.push_back(0x11111111);
+#endif
+#ifndef DEBUG:
+                    binary.push_back(std::stoul(*str, nullptr, 0));
+#endif
                     break;
 
                 case ARM_I::LDR_REG:
+                    //only used in the form of ```ldr r0, [r0]```
+                    if(reg1 == 0) {
+                        binary.push_back(0xe5900000);
+                    } else {
+                        binary.push_back(0xe5944000);
+                    }
+
+
                     break;
 
                 case ARM_I::PUSH_REG:
+                    //works only for r0-r3
+                    switch (reg1) {
+                        case 0:
+                            binary.push_back(0xe52d0004);
+                            break;
+                        case 1:
+                            binary.push_back(0xe52d1004);
+                            break;
+                        case 2:
+                            binary.push_back(0xe52d2004);
+                            break;
+                        case 3:
+                            binary.push_back(0xe52d3004);
+                            break;
+                        default:
+                            assert(false);
+                    }
                     break;
 
                 case ARM_I::PUSH_MULT_REG:
+                    //works only for r0-r3
+                    switch (reg2) {
+                        case 0:
+                            assert(false);
+                        case 1:
+                            binary.push_back(0xe92d0003);
+                            break;
+                        case 2:
+                            binary.push_back(0xe92d0007);
+                            break;
+                        case 3:
+                            binary.push_back(0xe92d000f);
+                            break;
+                        default:
+                            assert(false);
+                    }
                     break;
 
                 case ARM_I::WORD_DECL:
+                    //not used
+                    break;
+
+                case ARM_I::POP_REG:
+                    switch (reg1) {
+                        case 0:
+                            binary.push_back(0xe49d0004);
+                            break;
+                        case 1:
+                            binary.push_back(0xe49d1004);
+                            break;
+                        case 2:
+                            binary.push_back(0xe49d2004);
+                            break;
+                        case 3:
+                            binary.push_back(0xe49d3004);
+                            break;
+                        default:
+                            assert(false);
+                    }
                     break;
 
                 case ARM_I::POP_MULT_REG:
+                    switch (reg2) {
+                        case 0:
+                            assert(false);
+                        case 1:
+                            binary.push_back(0xe8bd0003);
+                            break;
+                        case 2:
+                            binary.push_back(0xe8bd0007);
+                            break;
+                        case 3:
+                            binary.push_back(0xe8bd000f);
+                            break;
+                        default:
+                            assert(false);
+                    }
+                break;
                     break;
 
                 default:
                     assert(false);
-                    break;
         }
     }
 

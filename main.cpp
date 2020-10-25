@@ -173,6 +173,7 @@ extern "C" {
     {
         typedef int (*jited_function_t)();
         jited_function_t function = addr;
+
         int result = function();
         printf("%d\n", result);
     }
@@ -196,6 +197,19 @@ extern "C" {
         compiler.compile();
 
 
+        auto bin = compiler.GetCompiledBinary();
+
+        //TODO: implement somewhere else
+        bin.push_back(0xe49d0004); //pop {r0}
+        bin.push_back(0xe49d4004); //pop {r4}
+        bin.push_back(0xe12fff1e); //bx lr
+
+        uint32_t* u32_buffer = static_cast<uint32_t*>(out_buffer);
+        for(size_t i = 0; i < bin.size(); ++i) {
+            *u32_buffer = bin[i];
+            ++u32_buffer;
+            std::cout << std::hex << bin[i] << std::endl;
+        }
 
         auto out_iter = std::ostream_iterator<std::string>(std::cout, "");
         compiler.print_assembly(out_iter);
@@ -211,12 +225,12 @@ int main() {
                                   symbols,
                                   code_buffer);
 
-    //call_function_and_print_result(code_buffer);
+    call_function_and_print_result(code_buffer);
 
     free_symbols(functions_count);
     free_program_code_buffer(code_buffer);
-    /*
-    auto out_iter = std::ostream_iterator<std::string>(std::cout, "");
-    compiler.print_assembly(out_iter); */
+
+
+
     return 0;
 }

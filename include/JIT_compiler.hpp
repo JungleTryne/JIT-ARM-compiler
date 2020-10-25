@@ -1,6 +1,5 @@
 #pragma once
 
-//#define DEBUG
 
 #include <algorithm>
 #include <cassert>
@@ -210,7 +209,14 @@ void ARM_JIT_Compiler::print_assembly(OutputIterator& output) {
                                         + "}\n";
                               break;
 
+                          case ARM_I::POP_REG:
+                              *output = std::string("pop\t{r") +
+                                        param_1
+                                        + "}\n";
+                              break;
+
                           default:
+                              std::cout << static_cast<size_t>(std::get<0>(instruction));
                               *output = std::string("UNKNOWN_INSTRUCTION\n");
                               break;
                       }
