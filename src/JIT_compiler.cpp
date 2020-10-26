@@ -803,9 +803,5 @@ jit_compile_expression_to_arm(const char * expression,
     for (size_t i = 0; i < bin.size(); ++i) {
         *u32_buffer = bin[i];
         ++u32_buffer;
-        std::cout << std::hex << bin[i] << std::endl;
     }
-
-    auto out_iter = std::ostream_iterator<std::string>(std::cout, "");
-    compiler.print_assembly(out_iter);
 }
