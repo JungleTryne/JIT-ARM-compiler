@@ -549,6 +549,7 @@ std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
     std::vector<uint32_t> binary = {};
     size_t counter = 0;
 
+    binary.push_back(0xe52de004);
     binary.push_back(0xe52d4004); //push {r4}
 
     for(auto [type, reg1_o, reg2_o, str] : instructions_) {
@@ -589,7 +590,7 @@ std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
                     //[cond] 00010010 [SBO] [SBO] [SBO] [0011] [RM]
 
                     //TODO: SUPER-KOSTYL
-                    binary.push_back(0xe12fff14);
+                    binary.push_back(0xe12fff34);
 
                     /*
                     instruction |= reg1;        //RM

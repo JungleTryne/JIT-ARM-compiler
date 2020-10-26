@@ -196,13 +196,14 @@ extern "C" {
         TransferParsingTree(parser, compiler);
         compiler.compile();
 
-
         auto bin = compiler.GetCompiledBinary();
 
         //TODO: implement somewhere else
+
         bin.push_back(0xe49d0004); //pop {r0}
-        bin.push_back(0xe49d4004); //pop {r4}
-        bin.push_back(0xe12fff1e); //bx lr
+        bin.push_back(0xe8bd8010);
+        //bin.push_back(0xe49d4004); //pop {r4}
+        //bin.push_back(0xe12fff1e); //bx lr
 
         uint32_t* u32_buffer = static_cast<uint32_t*>(out_buffer);
         for(size_t i = 0; i < bin.size(); ++i) {
