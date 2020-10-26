@@ -1,5 +1,6 @@
 #pragma once
 
+#include <fstream>
 #include <algorithm>
 #include <cassert>
 #include <iostream>
@@ -56,6 +57,13 @@ private:
     void ParseExpression(Node* current_node, str_iter left, str_iter right);
     bool IsParBalance(str_iter left, str_iter right);
 
+    void ParseConstant(Node* current_node, str_iter left, str_iter right);
+    void ParseArithmetic(Node *current_node, str_iter left, str_iter right, ExpressionType type, str_iter pos);
+    void ParseFunction(Node *current_node, str_iter left, str_iter right);
+    void ParseVariable(Node *current_node, str_iter left, str_iter right);
+
+    static ExpressionType GetTypeFromChar(char current_char);
+
     inline bool IsConstant(str_iter left) const;
     inline bool IsFunction(str_iter left, str_iter right) const;
     std::string GetFunctionName(str_iter_const left, str_iter_const right) const;
@@ -80,7 +88,6 @@ private:
         SUB,            //r0 -= r1
         MUL,            //r0 *= r1
 
-        //SKIP,           //basically, b skip, but in memory just ea000000
         BLX,            //blx *function*
 
         LDR_FROM_NEXT,  //ldr r_i [pc, #-4]
@@ -100,7 +107,8 @@ private:
         R2 = 2,
         R3 = 3,
         R4 = 4,
-        LR, PC
+        LR = 5,
+        PC = 6
     };
 
     using ARM_R = ARM_REGISTER;
@@ -116,12 +124,15 @@ private:
 
     std::map<std::string, void*> address_map_;
     void compile_(Node* current);
+
+    void add_header();
+    void add_footer();
+
     void handle_const(Node* current);
     void handle_variable(Node* current);
     void handle_plus(Node* current);
     void handle_minus(Node* current);
     void handle_product(Node* current);
-
     void handle_function(Node* current);
 };
 
@@ -134,11 +145,11 @@ void ARM_JIT_Compiler::print_assembly(OutputIterator& output) {
                   instructions_.end(),
                   [&output, &skipped, &counter](const instruction_t& instruction)
                   {
-                    std::string param_1 = std::get<1>(instruction) ?
-                                        std::to_string(static_cast<int>(*std::get<1>(instruction))) : "";
+                      std::string param_1 = std::get<1>(instruction) ?
+                                            std::to_string(static_cast<int>(*std::get<1>(instruction))) : "";
 
-                    std::string param_2 = std::get<2>(instruction) ?
-                                        std::to_string(static_cast<int>(*std::get<2>(instruction))) : "";;
+                      std::string param_2 = std::get<2>(instruction) ?
+                                            std::to_string(static_cast<int>(*std::get<2>(instruction))) : "";;
 
 
                       switch (std::get<0>(instruction)) {
@@ -224,3 +235,13 @@ void ARM_JIT_Compiler::print_assembly(OutputIterator& output) {
 
                   });
 }
+
+typedef struct {
+    const char * name;
+    void       * pointer;
+} symbol_t;
+
+extern void
+jit_compile_expression_to_arm(const char * expression,
+                              const symbol_t * externs,
+                              void * out_buffer);

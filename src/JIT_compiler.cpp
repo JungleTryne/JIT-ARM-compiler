@@ -15,9 +15,13 @@ ExpressionParser::ExpressionParser(std::string expression) : expression_(std::mo
 /* This function helps to get rid of unnecessary spaces in the expression */
 void ExpressionParser::GetRidOfSpaces() {
     std::string expression_without_spaces;
-    std::for_each(expression_.begin(), expression_.end(), [&expression_without_spaces](char current){
-        if(current != ' ') expression_without_spaces.push_back(current);
+
+    std::for_each(expression_.begin(),
+                  expression_.end(),
+                  [&expression_without_spaces](char current) {
+        if (current != ' ') expression_without_spaces.push_back(current);
     });
+
     expression_ = expression_without_spaces;
 }
 
@@ -27,10 +31,10 @@ bool ExpressionParser::IsParBalance(str_iter left, str_iter right) {
     bool correct = true;
 
     std::for_each(left, right, [&balance, &correct](char current_char) {
-        if(balance < 0) correct = false;
-        if(current_char == '(') {
+        if (balance < 0) correct = false;
+        if (current_char == '(') {
             ++balance;
-        } else if(current_char == ')') {
+        } else if (current_char == ')') {
             --balance;
         }
     });
@@ -60,52 +64,34 @@ auto ExpressionParser::FindArithmeticOperation(str_iter left, str_iter right)
     auto pos = left;
     int64_t par_balance = 0;
 
-    for(auto current_iter = left; current_iter != right; ++current_iter) {
+    for (auto current_iter = left; current_iter != right; ++current_iter) {
         char current_char = *current_iter;
 
-        if(current_char == '(') {
-            ++par_balance;
-        } else if (current_char == ')') {
-            --par_balance;
-        }
+        if (current_char == '(') { ++par_balance; }
+        if (current_char == ')') { --par_balance; }
 
-        if(par_balance != 0) {
+        if (par_balance != 0) {
             continue;
         }
 
-        ExpressionType current_type;
-        switch (current_char) {
-            case '+':
-                current_type = ExpressionType::Plus;
-                break;
-            case '-':
-                current_type = ExpressionType::Minus;
-                break;
-            case '*':
-                current_type = ExpressionType::Product;
-                break;
-            default:
-                current_type = ExpressionType::Default;
-                break;
-        }
-
-        if(current_type == ExpressionType::Default) {
+        ExpressionType current_type = GetTypeFromChar(current_char);
+        if (current_type == ExpressionType::Default) {
             continue;
         }
 
-        if(!type) {
+        if (!type) {
             type = current_type;
             pos = current_iter;
         } else {
             size_t current_priority = GetPriority(current_type);
             size_t min_priority = GetPriority(*type);
-            if(current_priority < min_priority) {
+            if (current_priority <= min_priority && *(current_iter-1) != '*') {
                 type = current_type;
                 pos = current_iter;
             }
             ++current_iter;
 
-            while(*current_iter == '*' || *current_iter == '-' || *current_iter == '+') ++current_iter;
+            while (*current_iter == '*' || *current_iter == '-' || *current_iter == '+') ++current_iter;
         }
     }
     return std::make_pair(type, pos);
@@ -117,7 +103,7 @@ auto ExpressionParser::FindArithmeticOperation(str_iter left, str_iter right)
 void ExpressionParser::ParseExpression(Node* current_node, str_iter left, str_iter right) {
     int64_t surplus_pars = 0;
 
-    while(*(left + surplus_pars) == '(' &&
+    while (*(left + surplus_pars) == '(' &&
           *(right - 1 - surplus_pars) == ')' &&
           IsParBalance(left + surplus_pars + 1, right - surplus_pars - 1))
     {
@@ -128,45 +114,15 @@ void ExpressionParser::ParseExpression(Node* current_node, str_iter left, str_it
     std::advance(right, -surplus_pars);
 
     auto [type, pos] = FindArithmeticOperation(left, right);
-    if(type) {
-        current_node->type = *type;
-        current_node->content = std::nullopt;
-        for(size_t i = 0; i < 2; ++i) {
-            current_node->sub_expressions.push_back(std::make_unique<Node>());
-        }
-        ParseExpression(current_node->sub_expressions[0].get(), left, pos);
-        ParseExpression(current_node->sub_expressions[1].get(), pos + 1, right);
-
+    if (type) {
+        ParseArithmetic(current_node, left, right, *type, pos);
     } else {
-        if(IsConstant(left)) {
-            current_node->type = ExpressionType::Constant;
-            std::string dec_view = expression_.substr(std::distance(expression_.begin(), left),
-                                                      std::distance(left, right));
-            std::stringstream hex_stream;
-            hex_stream << std::hex << std::stoi(dec_view);
-            std::string hex_view("0x" + hex_stream.str());
-            current_node->content = hex_view;
-
-        } else if(IsFunction(left, right)) {
-            current_node->type = ExpressionType::Function;
-            current_node->content = GetFunctionName(left, right);
-
-            size_t counter = 0;
-            auto params = GetFunctionParameters(left, right);
-            for(auto [pair_left, pair_right] : params) {
-                current_node->sub_expressions.push_back(std::make_unique<Node>());
-                ParseExpression(current_node->sub_expressions[counter].get(), pair_left, pair_right);
-                ++counter;
-            }
+        if (IsConstant(left)) {
+            ParseConstant(current_node, left, right);
+        } else if (IsFunction(left, right)) {
+            ParseFunction(current_node, left, right);
         } else {
-            if(std::distance(left, right) < 1) {
-                current_node->type = ExpressionType::Constant;
-                current_node->content = "0x0"; //In case we get -10, left constant will be void, so we make it 0-10
-            } else {
-                current_node->type = ExpressionType::Variable;
-                current_node->content = expression_.substr(std::distance(expression_.begin(), left),
-                                                           std::distance(left, right));
-            }
+            ParseVariable(current_node, left, right);
         }
     }
 }
@@ -178,8 +134,8 @@ bool ExpressionParser::IsConstant(str_iter left) const {
 
 /* This functions can be called only if expression cannot be divided with arithmetic operation*/
 bool ExpressionParser::IsFunction(str_iter left, str_iter right) const {
-    for(auto current_iter = left; current_iter != right; ++current_iter) {
-        if(*current_iter == '(') {
+    for (auto current_iter = left; current_iter != right; ++current_iter) {
+        if (*current_iter == '(') {
             return true;
         }
     }
@@ -198,24 +154,24 @@ std::string ExpressionParser::GetFunctionName(str_iter_const left, str_iter_cons
 
 /* This functions can be called only if expression[left:right] is actually a function*/
 auto ExpressionParser::GetFunctionParameters(str_iter left, str_iter right) const
--> std::vector<std::pair<str_iter, str_iter>>
+    -> std::vector<std::pair<str_iter, str_iter>>
 {
     std::vector<std::pair<str_iter , str_iter>> answer = {};
     auto current_left = left;
 
-    for(; *current_left != '('; ++current_left);
+    for (; *current_left != '('; ++current_left);
     ++current_left;
 
     auto current_right = current_left;
 
-    while(current_right != right) {
+    while (current_right != right) {
         int64_t pron_balance = 0;
 
-        for(; *current_right != ',' || pron_balance > 0; ++current_right) {
-            if(*current_right == '(') ++pron_balance;
-            if(*current_right == ')') --pron_balance;
+        for (; *current_right != ',' || pron_balance > 0; ++current_right) {
+            if (*current_right == '(') ++pron_balance;
+            if (*current_right == ')') --pron_balance;
 
-            if(pron_balance == -1 && *current_right == ')') {
+            if (pron_balance == -1 && *current_right == ')') {
                 answer.emplace_back(current_left, current_right);
                 return answer;
             }
@@ -235,8 +191,68 @@ void TransferParsingTree(ExpressionParser& parser, ARM_JIT_Compiler& compiler) {
     compiler.parse_tree_ = std::move(parser.root_);
 }
 
+void ExpressionParser::ParseConstant(Node* current_node, str_iter left, str_iter right) {
+    current_node->type = ExpressionType::Constant;
+    std::string dec_view = expression_.substr(std::distance(expression_.begin(), left),
+                                              std::distance(left, right));
+    std::stringstream hex_stream;
+    hex_stream << std::hex << std::stoi(dec_view);
+    std::string hex_view("0x" + hex_stream.str());
+    current_node->content = hex_view;
+}
+
+void ExpressionParser::ParseArithmetic(Node *current_node, str_iter left, str_iter right, ExpressionType type,
+                                       str_iter pos) {
+    current_node->type = type;
+    current_node->content = std::nullopt;
+    for (size_t i = 0; i < 2; ++i) {
+        current_node->sub_expressions.push_back(std::make_unique<Node>());
+    }
+    ParseExpression(current_node->sub_expressions[0].get(), left, pos);
+    ParseExpression(current_node->sub_expressions[1].get(), pos + 1, right);
+}
+
+void ExpressionParser::ParseFunction(Node *current_node, str_iter left, str_iter right) {
+    current_node->type = ExpressionType::Function;
+    current_node->content = GetFunctionName(left, right);
+
+    size_t counter = 0;
+    auto params = GetFunctionParameters(left, right);
+    for (auto [pair_left, pair_right] : params) {
+        current_node->sub_expressions.push_back(std::make_unique<Node>());
+        ParseExpression(current_node->sub_expressions[counter].get(), pair_left, pair_right);
+        ++counter;
+    }
+}
+
+void ExpressionParser::ParseVariable(Node *current_node, str_iter left, str_iter right) {
+    if (std::distance(left, right) < 1) {
+        current_node->type = ExpressionType::Constant;
+        current_node->content = "0x0"; //In case we get -10, left constant will be void, so we make it 0-10
+    } else {
+        current_node->type = ExpressionType::Variable;
+        current_node->content = expression_.substr(std::distance(expression_.begin(), left),
+                                                   std::distance(left, right));
+    }
+}
+
+ExpressionType ExpressionParser::GetTypeFromChar(char current_char) {
+    switch (current_char) {
+        case '+':
+            return ExpressionType::Plus;
+        case '-':
+            return ExpressionType::Minus;
+        case '*':
+            return ExpressionType::Product;
+        default:
+            return ExpressionType::Default;
+    }
+}
+
 void ARM_JIT_Compiler::compile() {
+    add_header();
     compile_(parse_tree_.get());
+    add_footer();
 }
 
 void ARM_JIT_Compiler::compile_(Node *current) {
@@ -244,21 +260,27 @@ void ARM_JIT_Compiler::compile_(Node *current) {
         case ExpressionType::Constant:
             handle_const(current);
             break;
+
         case ExpressionType::Variable:
             handle_variable(current);
             break;
+
         case ExpressionType::Plus:
             handle_plus(current);
             break;
+
         case ExpressionType::Minus:
             handle_minus(current);
             break;
+
         case ExpressionType::Product:
             handle_product(current);
             break;
+
         case ExpressionType::Function:
             handle_function(current);
             break;
+
         case ExpressionType::Default:
             assert(false);
     }
@@ -274,19 +296,14 @@ void ARM_JIT_Compiler::handle_const(Node *current) {
      * skip:
      * push {r0}
      *
-     * P.S. 0x05 is given for example
+     * P.S. 0x05 is given for the example
      */
 
     instructions_.emplace_back ( //ldr r0, [pc]
             ARM_I::LDR_FROM_NEXT,
             ARM_R::R0,
             std::nullopt,
-#ifndef DEBUG
             current->content
-#endif
-#ifdef DEBUG
-            current->content
-#endif
     );
 
     instructions_.emplace_back ( //.word *constant*
@@ -315,38 +332,31 @@ void ARM_JIT_Compiler::handle_variable(Node *current) {
      * ldr r0, [r0]
      * push {r0}
      *
-     * P.S. 0xfb1cfcd0 is given for example
+     * P.S. 0xfb1cfcd0 is given for the example
      */
+
 #ifndef DEBUG
     std::stringstream address;
     address << address_map_.at(*current->content);
-#endif
     std::string address_str = address.str();
+#endif
+
+#ifdef DEBUG
+    std::string address_str = "0x11111111";
+#endif
 
     instructions_.emplace_back ( //ldr r0, [pc]
             ARM_I::LDR_FROM_NEXT,
             ARM_R::R0,
             std::nullopt,
-#ifndef DEBUG
             address_str
-#endif
-#ifdef DEBUG
-            0x11111111
-#endif
     );
 
     instructions_.emplace_back ( //.word *constant*
             ARM_I::WORD_DECL,
             std::nullopt,
             std::nullopt,
-
-#ifndef DEBUG
             address_str
-#endif
-#ifdef DEBUG
-            current->content
-#endif
-
     );
 
     instructions_.emplace_back ( //ldr r0, [r0]
@@ -442,7 +452,7 @@ void ARM_JIT_Compiler::handle_product(Node *current) {
     compile_(current->sub_expressions[0].get());
     compile_(current->sub_expressions[1].get());
 
-    instructions_.emplace_back ( //pop {r0-r1}
+    instructions_.emplace_back( //pop {r0-r1}
             ARM_I::POP_MULT_REG,
             ARM_R::R0,
             ARM_R::R1,
@@ -486,14 +496,21 @@ void ARM_JIT_Compiler::handle_function(Node *current) {
     size_t arguments_number = current->sub_expressions.size();
     assert(arguments_number > 0);
 
+    #ifndef DEBUG
 
-
-#ifndef DEBUG
     std::stringstream address;
     address << address_map_.at(*current->content);
-#endif
+    std::string content = address.str();
 
-    for(int32_t i = arguments_number; i > 0; --i) {
+    #endif
+
+    #ifdef DEBUG
+
+    std::string content = current->content;
+
+    #endif
+
+    for (int32_t i = arguments_number; i > 0; --i) {
         instructions_.emplace_back ( //pop {r0-ri}
                 ARM_I::POP_REG,
                 static_cast<ARM_R>(static_cast<size_t>(ARM_R::R0) + i - 1),
@@ -506,26 +523,14 @@ void ARM_JIT_Compiler::handle_function(Node *current) {
             ARM_I::LDR_FROM_NEXT,
             ARM_R::R4,
             std::nullopt,
-            #ifndef DEBUG
-                        address.str()
-            #endif
-            #ifdef DEBUG
-                        current->content
-            #endif
+            content
     );
 
     instructions_.emplace_back ( //.word *constant*
             ARM_I::WORD_DECL,
             std::nullopt,
             std::nullopt,
-
-#ifndef DEBUG
-            address.str()
-#endif
-#ifdef DEBUG
-            current->content
-#endif
-
+            content
     );
 
     instructions_.emplace_back(
@@ -549,10 +554,10 @@ std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
     std::vector<uint32_t> binary = {};
     size_t counter = 0;
 
-    binary.push_back(0xe52de004);
-    binary.push_back(0xe52d4004); //push {r4}
+    //binary.push_back(0xe52de004); //push {lr}
+    //binary.push_back(0xe52d4004); //push {r4}
 
-    for(auto [type, reg1_o, reg2_o, str] : instructions_) {
+    for (auto [type, reg1_o, reg2_o, str] : instructions_) {
         uint32_t reg1 = reg1_o.has_value() ? static_cast<uint8_t>(*reg1_o) : 0;
         uint32_t reg2 = reg2_o.has_value() ? static_cast<uint8_t>(*reg2_o) : 0;
         uint32_t instruction = 0x0;
@@ -587,71 +592,69 @@ std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
                     break;
 
                 case ARM_I::BLX:
-                    //[cond] 00010010 [SBO] [SBO] [SBO] [0011] [RM]
-
-                    //TODO: SUPER-KOSTYL
-                    binary.push_back(0xe12fff34);
-
-                    /*
-                    instruction |= reg1;        //RM
-                    instruction |= 0x3u << 4u;
-                    instruction |= 0xfu << 8u;
-                    instruction |= 0xfu << 12u;
-                    instruction |= 0xfu << 16u;
-                    instruction |= 0x2u << 20u;
-                    instruction |= 0x1u << 24u;
-                    instruction |= 0xeu << 28u; //condition 1110 -> always run
-                    binary.push_back(instruction); */
+                    if(reg1 == 4) {
+                        binary.push_back(0xe12fff34);   //blx r4
+                    } else {
+                        assert(false);
+                    }
                     break;
 
                 case ARM_I::LDR_FROM_NEXT:
                     //this is multiple instructions case
                     /*  ldr r0, [pc]    -> e59f0000
+                     *  b skip          -> ea000000
                      *  .word 0x004932  -> [word]
-                     *  b 3c            -> ea000000
+                     *  skip: ...
                      */
 
-                    if(reg1 == 0) {
+                    if (reg1 == 0) {
                         binary.push_back(0xe59f0000);
                     } else {
                         binary.push_back(0xe59f4000);
                     }
 
-                binary.push_back(0xea000000);
+                    binary.push_back(0xea000000);
 
-#ifdef DEBUG:
-                binary.push_back(0x11111111);
-#endif
-#ifndef DEBUG:
+                    #ifdef DEBUG
+                    binary.push_back(0x11111111);
+                    #endif
+
+                    #ifndef DEBUG
                     binary.push_back(std::stoul(*str, nullptr, 0));
-#endif
+                    #endif
+
                     break;
 
                 case ARM_I::LDR_REG:
-                    //only used in the form of ```ldr r0, [r0]```
-                    if(reg1 == 0) {
-                        binary.push_back(0xe5900000);
+                    if (reg1 == 0) {
+                        binary.push_back(0xe5900000);   //ldr r0, [r0]
+                    } else if(reg1 == 4) {
+                        binary.push_back(0xe5944000);   //ldr r4, [r4]
                     } else {
-                        binary.push_back(0xe5944000);
+                        assert(false);
                     }
-
 
                     break;
 
                 case ARM_I::PUSH_REG:
-                    //works only for r0-r3
                     switch (reg1) {
                         case 0:
-                            binary.push_back(0xe52d0004);
+                            binary.push_back(0xe52d0004);   //push {r0}
                             break;
                         case 1:
-                            binary.push_back(0xe52d1004);
+                            binary.push_back(0xe52d1004);   //push {r1}
                             break;
                         case 2:
-                            binary.push_back(0xe52d2004);
+                            binary.push_back(0xe52d2004);   //push {r2}
                             break;
                         case 3:
-                            binary.push_back(0xe52d3004);
+                            binary.push_back(0xe52d3004);   //push {r3}
+                            break;
+                        case 4:
+                            binary.push_back(0xe52d4004);   //push {r4}
+                            break;
+                        case 5:
+                            binary.push_back(0xe52de004);   //push {lr}
                             break;
                         default:
                             assert(false);
@@ -659,18 +662,17 @@ std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
                     break;
 
                 case ARM_I::PUSH_MULT_REG:
-                    //works only for r0-r3
                     switch (reg2) {
                         case 0:
                             assert(false);
                         case 1:
-                            binary.push_back(0xe92d0003);
+                            binary.push_back(0xe92d0003);   //push {r0-r1}
                             break;
                         case 2:
-                            binary.push_back(0xe92d0007);
+                            binary.push_back(0xe92d0007);   //push {r0-r2}
                             break;
                         case 3:
-                            binary.push_back(0xe92d000f);
+                            binary.push_back(0xe92d000f);   //push {r0-r3}
                             break;
                         default:
                             assert(false);
@@ -678,22 +680,25 @@ std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
                     break;
 
                 case ARM_I::WORD_DECL:
-                    //not used
+                    //not used - compiled in LDR_NEXT
                     break;
 
                 case ARM_I::POP_REG:
                     switch (reg1) {
                         case 0:
-                            binary.push_back(0xe49d0004);
+                            binary.push_back(0xe49d0004);   //pop {r0}
                             break;
                         case 1:
-                            binary.push_back(0xe49d1004);
+                            binary.push_back(0xe49d1004);   //pop {r1}
                             break;
                         case 2:
-                            binary.push_back(0xe49d2004);
+                            binary.push_back(0xe49d2004);   //pop {r2}
                             break;
                         case 3:
-                            binary.push_back(0xe49d3004);
+                            binary.push_back(0xe49d3004);   //pop {r3}
+                            break;
+                        case 4:
+                            binary.push_back(0xe49d4004);   //pop {r4}
                             break;
                         default:
                             assert(false);
@@ -705,18 +710,21 @@ std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
                         case 0:
                             assert(false);
                         case 1:
-                            binary.push_back(0xe8bd0003);
+                            binary.push_back(0xe8bd0003); //pop {r0-r1}
                             break;
                         case 2:
-                            binary.push_back(0xe8bd0007);
+                            binary.push_back(0xe8bd0007); //pop {r0-r2}
                             break;
                         case 3:
-                            binary.push_back(0xe8bd000f);
+                            binary.push_back(0xe8bd000f); //pop {r0-r3}
+                            break;
+                        case 6:
+                            if(reg1 != 4) assert(false);
+                            binary.push_back(0xe8bd8010); //pop {r4-pc}
                             break;
                         default:
                             assert(false);
                     }
-                break;
                     break;
 
                 default:
@@ -725,4 +733,79 @@ std::vector<uint32_t> ARM_JIT_Compiler::GetCompiledBinary() {
     }
 
     return binary;
+}
+
+void ARM_JIT_Compiler::add_header() {
+    /* Adding
+     * push {lr}
+     * push {r4}
+     * to the beginning of the code
+     */
+
+    instructions_.emplace_back(
+        ARM_I::PUSH_REG,
+        ARM_R::LR,
+        std::nullopt,
+        std::nullopt
+    );
+
+    instructions_.emplace_back(
+        ARM_I::PUSH_REG,
+        ARM_R::R4,
+        std::nullopt,
+        std::nullopt
+    );
+}
+
+void ARM_JIT_Compiler::add_footer() {
+    /* Adding
+     * pop  {r0}
+     * pop  {r4-pc}
+     * to the end of the code
+     */
+
+    instructions_.emplace_back(
+            ARM_I::POP_REG,
+            ARM_R::R0,
+            std::nullopt,
+            std::nullopt
+    );
+
+    instructions_.emplace_back(
+            ARM_I::POP_MULT_REG,
+            ARM_R::R4,
+            ARM_R::PC,
+            std::nullopt
+    );
+}
+
+
+extern void
+jit_compile_expression_to_arm(const char * expression,
+                              const symbol_t * externs,
+                              void * out_buffer) {
+    std::string expression_cpp{expression};
+    std::map<std::string, void*> address_map = {};
+
+    symbol_t* current = const_cast<symbol_t*>(externs);
+    for (;current->pointer && current->name; ++current) {
+        address_map[current->name] = current->pointer;
+    }
+
+    ExpressionParser parser(expression_cpp);
+    ARM_JIT_Compiler compiler(address_map);
+    TransferParsingTree(parser, compiler);
+    compiler.compile();
+
+    auto bin = compiler.GetCompiledBinary();
+
+    uint32_t* u32_buffer = static_cast<uint32_t*>(out_buffer);
+    for (size_t i = 0; i < bin.size(); ++i) {
+        *u32_buffer = bin[i];
+        ++u32_buffer;
+        std::cout << std::hex << bin[i] << std::endl;
+    }
+
+    auto out_iter = std::ostream_iterator<std::string>(std::cout, "");
+    compiler.print_assembly(out_iter);
 }

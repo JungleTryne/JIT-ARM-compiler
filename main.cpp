@@ -11,16 +11,6 @@ extern "C" {
     #include <unistd.h>
     #include <sys/mman.h>
 
-    typedef struct {
-        const char * name;
-        void       * pointer;
-    } symbol_t;
-
-    extern void
-    jit_compile_expression_to_arm(const char * expression,
-                                  const symbol_t * externs,
-                                  void * out_buffer);
-
     // available functions to be used within JIT-compiled code
     static int my_div(int a, int b) { return a / b; }
     static int my_mod(int a, int b) { return a % b; }
@@ -178,60 +168,21 @@ extern "C" {
         printf("%d\n", result);
     }
 
+    int main() {
+        size_t functions_count = init_symbols();
+        read_input(functions_count);
+        void * code_buffer = init_program_code_buffer();
 
-    extern void
-    jit_compile_expression_to_arm(const char * expression,
-                                  const symbol_t * externs,
-                                  void * out_buffer) {
-        std::string expression_cpp{expression};
-        std::map<std::string, void*> address_map = {};
+        jit_compile_expression_to_arm(expression_to_parse,
+                                      symbols,
+                                      code_buffer);
 
-        symbol_t* current = const_cast<symbol_t*>(externs);
-        for(;current->pointer && current->name; ++current) {
-            address_map[current->name] = current->pointer;
-        }
+        call_function_and_print_result(code_buffer);
 
-        ExpressionParser parser(expression_cpp);
-        ARM_JIT_Compiler compiler(address_map);
-        TransferParsingTree(parser, compiler);
-        compiler.compile();
+        free_symbols(functions_count);
+        free_program_code_buffer(code_buffer);
 
-        auto bin = compiler.GetCompiledBinary();
-
-        //TODO: implement somewhere else
-
-        bin.push_back(0xe49d0004); //pop {r0}
-        bin.push_back(0xe8bd8010);
-        //bin.push_back(0xe49d4004); //pop {r4}
-        //bin.push_back(0xe12fff1e); //bx lr
-
-        uint32_t* u32_buffer = static_cast<uint32_t*>(out_buffer);
-        for(size_t i = 0; i < bin.size(); ++i) {
-            *u32_buffer = bin[i];
-            ++u32_buffer;
-            std::cout << std::hex << bin[i] << std::endl;
-        }
-
-        auto out_iter = std::ostream_iterator<std::string>(std::cout, "");
-        compiler.print_assembly(out_iter);
+        return 0;
     }
 }
 
-int main() {
-    size_t functions_count = init_symbols();
-    read_input(functions_count);
-    void * code_buffer = init_program_code_buffer();
-
-    jit_compile_expression_to_arm(expression_to_parse,
-                                  symbols,
-                                  code_buffer);
-
-    call_function_and_print_result(code_buffer);
-
-    free_symbols(functions_count);
-    free_program_code_buffer(code_buffer);
-
-
-
-    return 0;
-}
